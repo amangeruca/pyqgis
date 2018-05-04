@@ -1,4 +1,4 @@
-from qgis.core import QGis, QgsMapLayerRegistry, QgsSpatialIndex, QgsFeatureRequest, QgsPoint, QgsGeometry
+from qgis.core import QGis, QgsMapLayerRegistry, QgsSpatialIndex, QgsFeatureRequest, QgsPoint, QgsGeometry, QgsFeature
 
 #get the ids of lines feature on map
 def get_lyrs_line_id_on_map(maplayerregistry):
@@ -22,19 +22,20 @@ def get_lyrs_line_on_map(maplayerregistry):
 #     
 #     return lyr_list
 
-
+#get all layer on map
 def get_lyrs_on_map(maplayerregistry):
     lyrs = [lyr for id, lyr in maplayerregistry.mapLayers().iteritems()]
     return lyrs
   
   
+#get all vector layer on map  
 def get_lyrs_vect_on_map(maplayerregistry):
     lyrs = get_lyrs_on_map(maplayerregistry)
     lyrs_vect = [lyr for lyr in lyrs if lyr.type() == 0]
     return lyrs_vect
   
   
-#check if layer is linestring
+#check if layer is a linestring
 def is_lyr_a_line(lyr):
     try:
       return lyr.geometryType() == 1
@@ -46,6 +47,22 @@ def is_lyr_a_line(lyr):
 #find layer by its id on map
 def get_lyr_by_id(maplayerregistry, id):
     return maplayerregistry.mapLayer(id)
+
+
+#get layer geom by feature id
+def get_geom_by_id(layer, fid):
+    feats = get_feat_byid(layer, [fid])
+    if len(feats)>0:
+      return feats[0].geometry()
+    
+    
+#find features for list of id    
+def get_feat_byid(layer, ids):
+    feats = []
+    for id in ids:
+      request = QgsFeatureRequest(id)
+      feats.append(layer.getFeatures(request).next())
+    return feats   
   
 
 #check if any lines feature in map are editable  
@@ -85,23 +102,14 @@ def get_feat_bbox(geom, tolerance=0):
     if tolerance > 0:
       pass
     return bbox
-    
-    
-#find features for list of id    
-def get_feat_byid(layer, ids):
-    feats = []
-    for id in ids:
-      request = QgsFeatureRequest(id)
-      feats.append(layer.getFeatures(request).next())
-    return feats
   
 
 #get the intersection point of two feature
-def get_intersection_points(feat_targ, feat_int):
-    geom_int = feat_targ.constGeometry().intersection(feat_int.constGeometry())
-    if geom_int.isMultipart():
-      return geom_int.asMultiPoint()
-    return [geom_int.asPoint()]
+def get_intersection_points(targ_geom, ref_geom):
+    int_geom = targ_geom.intersection(ref_geom)
+    if int_geom.isMultipart():
+      return int_geom.asMultiPoint()
+    return [int_geom.asPoint()]
   
   
 #it round the coordinate to a given decimals       
@@ -143,4 +151,12 @@ def get_singles_part_geometries(geom):
             sngl_geoms.append(geom)
     return sngl_geoms
     
+    
+#create feature from a given feat template and a list of geom
+def create_feature_from_tmpl(feat, geom):
+    f_attrs = feat.attributes()
+    f = QgsFeature()
+    f.setAttributes(f_attrs)
+    f.setGeometry(geom)
+    return f
     

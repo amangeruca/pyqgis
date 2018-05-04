@@ -1,5 +1,8 @@
 <RCC>
   <qresource prefix="/plugins/lineeditor" >
-     <file>icons/i_1.png</file>
+     <file>icons/split.png</file>
+     <file>icons/selfint.png</file>
+     <file>icons/simpl.png</file>
+     <file>icons/settings.png</file>
   </qresource>
 </RCC>

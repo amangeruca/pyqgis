@@ -1,68 +1,92 @@
-from qgis.core import QgsFeature, QgsPoint, QgsGeometry
+from qgis.core import QgsPoint, QgsGeometry
 from qgis.gui import QgsMessageBar
 from geo_utils import (get_feat_bbox
                       ,get_feats_on_bbox
                       ,get_feat_byid
                       ,get_singles_part_geometries
                       ,get_intersection_points
-                      ,get_rounded_points) 
-from utils import (log_info, log_warn, log_error)
+                      ,get_rounded_points
+                      ,create_feature_from_tmpl) 
+from utils import (MyLog)
+from settings import APP_CONFIG
 
 #split layer feature at intersection with the added feature. Then split the added feat
-def do_split_layer_by_feature(layer, id_targ):
-    feats_int_new = []
-    pts_int_finded = []
-    ids_feat_updated = []
-
-    feat_targ = get_feat_byid(layer, [id_targ])[0] 
-    feats_int = get_feats_close_to(layer, feat_targ)
-    if len(feats_int) > 0:
-      for f_int in feats_int:
-        #get point intersection 
-        geom_int_pts = get_intersection_points(feat_targ, f_int)
+def do_split_layer_by_feature(layer, id_targ, targ_geoms):
+    try:
+        layer.beginEditCommand("Split Feature intersected")
         
-        #if interesection
-        if geom_int_pts:
-            #round pt geometry to a grid
-            geom_int_pts_rnd = get_rounded_points(geom_int_pts)
-            pts_int_finded.extend(geom_int_pts_rnd)
-            
-            #split interesection layer and return new feature
-            feat_int_splitted = get_splitted_feats(f_int, geom_int_pts_rnd)
-            
-            #if there are feat to splited rec all feats to update existing
-            if len(feat_int_splitted) > 0:
-                feats_int_new.extend(feat_int_splitted)
-                ids_feat_updated.append(f_int.id())
-                
-      #split target feature
-      if len(pts_int_finded) > 0:
-        feat_targ_splitted = get_splitted_feats(feat_targ, pts_int_finded)
+        geom_targ_new = []
         
-        if len(feat_targ_splitted) > 0:
-          feats_int_new.extend(feat_targ_splitted)  
-          ids_feat_updated.append(id_targ)
-          
-      #update features
-      if len(feats_int_new)>0:
-        apply_split_updated(layer, feats_int_new, ids_feat_updated)
+        for tgeom in targ_geoms:
+            pts_int_finded = []
+            feats_int_new = []
+            ids_feat_updated = []
+            has_target_splitted = False
+            
+            #get the feature that are close to target geom
+            feats_int = get_feats_close_to(layer, id_targ, tgeom)
+            
+            if len(feats_int) > 0:
+                for f_int in feats_int:
+                    g_int = f_int.geometry()
+                    #get point intersection 
+                    geom_int_pts = get_intersection_points(tgeom, g_int)
+                    
+                    #if interesection
+                    if geom_int_pts:
+                        #round pt geometry to a grid
+                        geom_int_pts_rnd = get_rounded_points(geom_int_pts, APP_CONFIG['rounding_digit'])
+                        pts_int_finded.extend(geom_int_pts_rnd)
+                    
+                        #split interesection layer and return new feature
+                        feat_int_splitted = get_splitted_feats(f_int, geom_int_pts_rnd)
+                        
+                        #if there are feat to splited rec all feats to update existing
+                        if len(feat_int_splitted) > 0:
+                            feats_int_new.extend(feat_int_splitted)
+                            ids_feat_updated.append(f_int.id())
+                        
+                #split target geom
+                if len(pts_int_finded) > 0:
+                    tgeom_splitted = split_geom(tgeom, pts_int_finded)
+                    
+                    if len(tgeom_splitted) > 0:
+                        has_target_splitted = True
+                        
+                #if target geom has been splitted l'aggiungo all'array altrimenti aggiungo la target geom
+                if has_target_splitted:
+                    geom_targ_new.extend(tgeom_splitted)
+                else:
+                    geom_targ_new.extend([tgeom])
+    
+                #update intersected features
+                if len(feats_int_new)>0 and len(ids_feat_updated)>0:
+                    apply_split_updated(layer, feats_int_new, ids_feat_updated)
+        
+        return geom_targ_new
+                    
+    except e as Exception:
+        layer.destroyEditCommand()
+        msg = "Error on splitting intersected feature: %s" %e 
+        raise Exception(msg)
+    
+    finally:
+        layer.endEditCommand()
 
   
 #get all the feature the intersect the bounding box of the layer  
-def get_feats_close_to(layer, feat):
-    geom = feat.geometry()
+def get_feats_close_to(layer, id_targ, geom):
     bbox = get_feat_bbox(geom)
     feats_ids_on_bbox = get_feats_on_bbox(layer, bbox)
     feats_ids_on_bbox.remove(feat.id())
     feats_on_bbox = get_feat_byid(layer, feats_ids_on_bbox)
     
-    log_info("finded %s close to" % len(feats_ids_on_bbox))
+    MyLog.log_info("finded %s close to" % len(feats_ids_on_bbox))
     return feats_on_bbox
   
   
 def get_splitted_feats(feat, geom_int_pts_rnd):
     feat_splitted = []
-    feat_attrs = feat.attributes()
     
     #decompose feat in singles parts
     sngl_geoms = get_singles_part_geometries(feat.geometry())
@@ -70,23 +94,21 @@ def get_splitted_feats(feat, geom_int_pts_rnd):
     for sngl in sngl_geoms:
         #get point on single geoms
         try:
-          log_info("Splitting geom of feature %s part" %feat.id())
+          MyLog.log_info("Splitting geom of feature %s part" %feat.id())
           splitted_geom = split_geom(sngl, geom_int_pts_rnd)
         
           for splt in splitted_geom: 
-              f = QgsFeature()
-              f.setAttributes(feat_attrs)
-              f.setGeometry(splt)
+              f = create_feature_from_tmpl(feat, splt)
               feat_splitted.append(f)
               
         except Exception as e:
           msg = "Error spliting geometry part: %s" %e
-          log_error(msg)
+          MyLog.log_error(msg)
           self.iface.messageBar().pushMessage("Error", msg, level=QgsMessageBar.CRITICAL)
           continue
           
     return feat_splitted
-      
+     
       
 def split_geom(geom, split_pts):
     geom_splitted = []
@@ -109,9 +131,16 @@ def split_geom(geom, split_pts):
         geom_splitted.append(g)
       
     return geom_splitted
-      
+
+
       
 # split geometry not seems to work
+# find as it works
+# when i split a geometry also the target geometry will be modified 
+# so orig = orig(mod) + splitteds
+# will leave the other methodology until it works
+
+
 # def get_splitted_feats(feat, pts_int):
 #     feat_splitted = []
 #     feat_attrs = feat.attributes()
@@ -123,7 +152,7 @@ def split_geom(geom, split_pts):
 #         f.setGeometry(g)
 #         
 #     elif result > 1:
-#       log_warn("Split line", "Error on splitting lines")
+#       MyLog.log_warn("Split line", "Error on splitting lines")
 #         
 #     return feat_splitted
   
@@ -156,20 +185,10 @@ def densify_feature_wiht_points(geom, pts, tolerance=0.2):
   
 
 def apply_split_updated(layer, new_feats, old_id_feats):
-    try:
-      log_info("Apply split update")
+
+    MyLog.log_info("Apply split feat interesected update")
       
-      layer.beginEditCommand("Features splitting")
-      
-      #delete the original features
-      layer.deleteFeatures(old_id_feats)
-      #add the splitted features
-      layer.addFeatures(new_feats)
-      
-      layer.endEditCommand()
-      
-    except Exception as e:
-      layer.destroyEditCommand()
-      msg = "Error on appling split update: %s" %e   
-      log_error(msg)   
-      self.iface.messageBar().pushMessage("Error", msg, level=QgsMessageBar.CRITICAL)
+    #delete the original features
+    layer.deleteFeatures(old_id_feats)
+    #add the splitted features
+    layer.addFeatures(new_feats)
