@@ -95,51 +95,63 @@ class LineLayer:
     
     
   def do_update_onEditCommandEnded(self):
-    try:
+    try:      
+        #beign a buffer on editing
+        self.layer.beginEditCommand("Line management edit update")
+        
         #create feature from the udpated geom
-        feat_targ = get_feat_byid(self.layer, self.current_fid)[0] 
+        feat_targ = get_feat_byid(self.layer, [self.current_fid])[0] 
         
         #clean line and get cleaned geometry. 
-        cleaned_geoms = do_clean_geom(feat_targ, self.layer_state["is_action_selfint_active"], self.layer_state["is_action_simpl_active"]) #self.is_action_selfint_active, self.is_action_simplify_active)
-        targ_geoms = cleaned_geoms
+        cleaned_geoms = do_clean_geom(feat_targ, self.layer_state["is_action_selfint_checked"], self.layer_state["is_action_simpl_checked"]) 
+        targ_geoms = cleaned_geoms #new goemetries for the commited feature
+        targ_ids = [self.current_fid] #feature ids update from the process
+        feats_new = [] #new feature after change
     
         #perform splitting on every geometry from cleaned geoms
         #split line at intersection with other feature of the same layer
-        if self.layer_state["is_action_split_active"]:
-            splitted_geoms = do_split_layer_by_feature(self.layer, self.current_fid, cleaned_geoms)
-            targ_geoms = splitted_geoms
+        if self.layer_state["is_action_split_checked"]:
+            geom_targ_new, feats_int_new, ids_feat_updated = do_split_layer_by_feature(self.layer, self.current_fid, cleaned_geoms)
+            feats_new.extend(feats_int_new)
+            targ_ids.extend(ids_feat_updated)
+            if len(geom_targ_new) > 0:  targ_geoms = geom_targ_new
         
         #Create feature from the modified geometry
-        feats_new = []
-        for tgeom in targ_geoms:
-            f = create_feature_from_tmpl(feat_targ, tgeom)
-            feats_new.append(f)
-        
-        #apply all the updates to target geom
-        self.apply_update_on_editCommandEnded(feats_new)
+        if len(targ_geoms)>0:
+          for tgeom in targ_geoms:
+              f = create_feature_from_tmpl(feat_targ, tgeom)
+              feats_new.append(f)
+          
+          #apply all the updates to target geom
+          self.layer.deleteFeatures(targ_ids)
+          self.layer.addFeatures(feats_new)
         
     except Exception as e:
         msg = "Line editor management error on edit command ended: %s" %e
         MyLog.log_error(msg)
+        self.layer.destroyEditCommand()
         self.iface.messageBar().pushMessage("Error", msg, level=QgsMessageBar.CRITICAL)
         self.layer.deleteFeature(self.current_fid)
         
+    finally:
+        self.layer.endEditCommand()  
         
-  def apply_update_on_editCommandEnded(self, feats):
-      try:
-          self.layer.beginEditCommand("Split Feature Target")
-          MyLog.log_info("Apply after edit ended update")
-      
-          #delete the original features
-          self.layer.deleteFeatures(self.current_fid)
-          #add the splitted features
-          self.layer.addFeatures(feats)
-    
-      except e as Exception:
-          layer.destroyEditCommand()
-          msg = "Error on after edit ended update: %s" %e 
-          raise Exception(msg)
-    
-      finally:
-          self.layer.endEditCommand()
+#   def apply_update_on_editCommandEnded(self, feats):
+#       try:
+#           self.layer.beginEditCommand("Split Feature Target")
+#           MyLog.log_info("Apply after edit ended update")
+#       
+#           #delete the original features
+#           self.layer.deleteFeature(self.current_fid)
+#           #add the splitted features
+#           self.layer.addFeatures(feats)
+#     
+#       except Exception as e:
+#           layer.destroyEditCommand()
+#           msg = "Error on after edit ended update: %s" %e 
+#           raise Exception(msg)
+#     
+#       finally:
+#           self.layer.endEditCommand()
+
   

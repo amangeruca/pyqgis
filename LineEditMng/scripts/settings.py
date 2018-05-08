@@ -42,4 +42,4 @@ with open(os.path.join(PLUGIN_PATH, 'config.ini')) as f:
             APP_CONFIG["simpl_tolerance"] = float(line.split('simpl_tolerance:')[1].strip())
 
         elif 'rounding_digit:' in line:
-            APP_CONFIG["rounding_digit"] = float(line.split('rounding_digit:')[1].strip())
+            APP_CONFIG["rounding_digit"] = int(line.split('rounding_digit:')[1].strip())

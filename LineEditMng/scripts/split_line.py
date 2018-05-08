@@ -12,73 +12,55 @@ from settings import APP_CONFIG
 
 #split layer feature at intersection with the added feature. Then split the added feat
 def do_split_layer_by_feature(layer, id_targ, targ_geoms):
-    try:
-        layer.beginEditCommand("Split Feature intersected")
-        
-        geom_targ_new = []
-        
-        for tgeom in targ_geoms:
-            pts_int_finded = []
-            feats_int_new = []
-            ids_feat_updated = []
-            has_target_splitted = False
-            
-            #get the feature that are close to target geom
-            feats_int = get_feats_close_to(layer, id_targ, tgeom)
-            
-            if len(feats_int) > 0:
-                for f_int in feats_int:
-                    g_int = f_int.geometry()
-                    #get point intersection 
-                    geom_int_pts = get_intersection_points(tgeom, g_int)
-                    
-                    #if interesection
-                    if geom_int_pts:
-                        #round pt geometry to a grid
-                        geom_int_pts_rnd = get_rounded_points(geom_int_pts, APP_CONFIG['rounding_digit'])
-                        pts_int_finded.extend(geom_int_pts_rnd)
-                    
-                        #split interesection layer and return new feature
-                        feat_int_splitted = get_splitted_feats(f_int, geom_int_pts_rnd)
-                        
-                        #if there are feat to splited rec all feats to update existing
-                        if len(feat_int_splitted) > 0:
-                            feats_int_new.extend(feat_int_splitted)
-                            ids_feat_updated.append(f_int.id())
-                        
-                #split target geom
-                if len(pts_int_finded) > 0:
-                    tgeom_splitted = split_geom(tgeom, pts_int_finded)
-                    
-                    if len(tgeom_splitted) > 0:
-                        has_target_splitted = True
-                        
-                #if target geom has been splitted l'aggiungo all'array altrimenti aggiungo la target geom
-                if has_target_splitted:
-                    geom_targ_new.extend(tgeom_splitted)
-                else:
-                    geom_targ_new.extend([tgeom])
+    geom_targ_new = []
+    feats_int_new = []
+    ids_feat_updated = []
     
-                #update intersected features
-                if len(feats_int_new)>0 and len(ids_feat_updated)>0:
-                    apply_split_updated(layer, feats_int_new, ids_feat_updated)
-        
-        return geom_targ_new
-                    
-    except e as Exception:
-        layer.destroyEditCommand()
-        msg = "Error on splitting intersected feature: %s" %e 
-        raise Exception(msg)
+    #create multigeometry from targs_geoms so all the geometry can be evaluate together
+    unionGeom = QgsGeometry.unaryUnion(targ_geoms)
     
-    finally:
-        layer.endEditCommand()
-
+    #get the feature that are close to target geom
+    feats_int = get_feats_close_to(layer, id_targ, unionGeom)
+    
+    if len(feats_int) > 0:
+        pts_int_finded = []
+        for f_int in feats_int:
+            g_int = f_int.geometry()
+            #get point intersection 
+            geom_int_pts = get_intersection_points(unionGeom, g_int)
+            
+            #if interesection
+            if geom_int_pts:
+                #round pt geometry to a grid
+                geom_int_pts_rnd = get_rounded_points(geom_int_pts, decimal=APP_CONFIG['rounding_digit'])
+                pts_int_finded.extend(geom_int_pts_rnd)
+            
+                #split interesection layer and return new feature
+                feat_int_splitted = get_splitted_feats(f_int, geom_int_pts_rnd)
+                
+                #if there are feat to splited rec all feats to update existing
+                if len(feat_int_splitted) > 0:
+                    feats_int_new.extend(feat_int_splitted)
+                    ids_feat_updated.append(f_int.id())
+                
+        #split every target geom
+        if len(pts_int_finded) > 0:
+            for tgeom in targ_geoms:
+              tgeom_splitted = split_geom(tgeom, pts_int_finded)
+              if len(tgeom_splitted) > 0:
+                  has_target_splitted = True
+                  geom_targ_new.extend(tgeom_splitted)
+              else:
+                  geom_targ_new.append(tgeom)
+                  
+    return geom_targ_new, feats_int_new, ids_feat_updated  
+        
   
 #get all the feature the intersect the bounding box of the layer  
 def get_feats_close_to(layer, id_targ, geom):
     bbox = get_feat_bbox(geom)
     feats_ids_on_bbox = get_feats_on_bbox(layer, bbox)
-    feats_ids_on_bbox.remove(feat.id())
+    feats_ids_on_bbox.remove(id_targ)
     feats_on_bbox = get_feat_byid(layer, feats_ids_on_bbox)
     
     MyLog.log_info("finded %s close to" % len(feats_ids_on_bbox))
@@ -114,7 +96,7 @@ def split_geom(geom, split_pts):
     geom_splitted = []
     
     #insert vertices in the geometry to split, and get the position index
-    pts_position = densify_feature_wiht_points(geom, split_pts)
+    pts_position = densify_feature_wiht_points(geom, split_pts, tolerance=APP_CONFIG["split_tolerance"])
     
     feat_vrt = geom.asPolyline()
     idx_ext_list = []
@@ -182,13 +164,3 @@ def densify_feature_wiht_points(geom, pts, tolerance=0.2):
         
     pts_position.sort()
     return pts_position
-  
-
-def apply_split_updated(layer, new_feats, old_id_feats):
-
-    MyLog.log_info("Apply split feat interesected update")
-      
-    #delete the original features
-    layer.deleteFeatures(old_id_feats)
-    #add the splitted features
-    layer.addFeatures(new_feats)
