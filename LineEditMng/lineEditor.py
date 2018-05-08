@@ -27,8 +27,9 @@ class LineEditor:
     
     #PLUGIN INIT
     self.maplayerregistry = QgsMapLayerRegistry.instance()
-    self.currentLayer = None
+    self.currentLayer = self.iface.activeLayer()  
     self.linelayer_list = {}
+    self.set_linelayer_list()
   
   
   def initGui(self):
@@ -53,7 +54,6 @@ class LineEditor:
     # connect to signal renderComplete which is emitted when canvas
     # rendering is done
     #QObject.connect(self.iface.mapCanvas(), SIGNAL("renderComplete(QPainter *)"), self.renderTest)
-    self.set_linelayer_list()
     
     self._attach_events()
     
@@ -172,24 +172,24 @@ class LineEditor:
       lc.layer.editingStopped.disconnect(self.on_editingStoped)
   
   '''
-  active/disactive enable/disable plugins buttons
+  active/deactivate enable/disable plugins buttons
   '''
   def active_deactive_action_split(self):
     action_is_checked = self.action_split.isChecked()
     print "active_deactive_action_split %s" % action_is_checked 
-    self.set_is_action_active_on_layer(action_is_checked, "action_split")
+    self.set_is_action_active_on_layer(action_is_checked, "split")
     
     
   def active_deactive_action_selfint(self):
     action_is_checked = self.action_selfint.isChecked()
     print "active_deactive_action_selfint %s" % action_is_checked 
-    self.set_is_action_active_on_layer(action_is_checked, "action_selfint")
+    self.set_is_action_active_on_layer(action_is_checked, "selfint")
     
     
   def active_deactive_action_simpl(self):
     action_is_checked = self.action_simpl.isChecked()
     print "active_deactive_action_simpl %s" % action_is_checked 
-    self.set_is_action_active_on_layer(action_is_checked, "action_simpl")
+    self.set_is_action_active_on_layer(action_is_checked, "simpl")
     
     
   def enable_disable_buttons(self, enable):
@@ -205,24 +205,19 @@ class LineEditor:
     
     
   def set_buttons(self, l_cfg):
-    self.action_split.setChecked(l_cfg.is_action_split_active)
-    self.action_selfint.setChecked(l_cfg.is_action_selfint_active)
-    self.action_simpl.setChecked(l_cfg.is_action_simpl_active)
+    self.action_split.setChecked(l_cfg.layer_state["is_action_split_checked"])
+    self.action_selfint.setChecked(l_cfg.layer_state["is_action_selfint_checked"])
+    self.action_simpl.setChecked(l_cfg.layer_state["is_action_simpl_checked"])
     
     
   '''
   set layer buttons state
   '''
   def set_is_action_active_on_layer(self, is_active, prop_name):
+    print "set action"
     l_id = self.currentLayer.id()
     if l_id in self.linelayer_list:
-      properties = {
-        "action_split": self.linelayer_list[l_id].is_action_split_active,
-        "action_selfint": self.linelayer_list[l_id].is_action_selfint_active,
-        "action_simpl": self.linelayer_list[l_id].is_action_simpl_active
-      }
-      prop = properties.get(prop_name)
-      prop = is_active
+        self.linelayer_list[l_id].set_state(prop_name, is_active)
            
       
   def _attach_events(self):    
@@ -258,8 +253,15 @@ class LineEditor:
     
     #configure slit button
     if l_id in self.linelayer_list:
-      self.action_split.setChecked(self.linelayer_list[l_id].is_action_split_active)
-      self.action_split.setEnabled(layer.isEditable())
+      l_isEditable = layer.isEditable()
+      #enable buttons if layer is editable
+      self.enable_disable_buttons(l_isEditable)
+      
+      #if layer is editable set buttons else reset it
+      if l_isEditable: 
+        self.set_buttons(self.linelayer_list[l_id])
+      else:
+        self.uncheck_buttons()
       
         
   def on_layersAdded(self, layers):
@@ -305,5 +307,5 @@ class LineEditor:
     l_cfg = self.linelayer_list[l_id]
       
     #attach event for edit line and set split setting
-    l_cfg.reset_buttons_state()
+    #l_cfg.reset_buttons_state()
     l_cfg.detach_editor_event() 

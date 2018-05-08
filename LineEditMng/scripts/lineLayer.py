@@ -10,9 +10,16 @@ class LineLayer:
   
   def __init__(self, iface, layer):
     self.iface = iface
-    self.is_action_split_active = APP_CONFIG['enable_split_button']
-    self.is_action_selfint_active = APP_CONFIG['enable_selfint_button']
-    self.is_action_simpl_active = APP_CONFIG['enable_simplify']
+    self.layer_state = {
+        "is_action_split_checked": APP_CONFIG['check_split_button'] and APP_CONFIG['check_split_button'],
+        "is_action_selfint_checked": APP_CONFIG['check_selfint_button'] and APP_CONFIG['allow_selfint_button'],
+        "is_action_simpl_checked": APP_CONFIG['check_simpl_button'] and APP_CONFIG['allow_simpl_button']
+    }
+    self.props_switch = {
+      "split": {"auth": APP_CONFIG['allow_split_button'], "prop": "is_action_split_checked"},
+      "selfint": {"auth": APP_CONFIG['allow_selfint_button'], "prop": "is_action_selfint_checked"},
+      "simpl": {"auth": APP_CONFIG['allow_simpl_button'], "prop": "is_action_simpl_checked"}
+    }
     self.current_fid = None
     self.layer = layer
     
@@ -36,10 +43,14 @@ class LineLayer:
     self.layer.featureAdded.disconnect(self.on_featureAdded)
     
     
-  def reset_buttons_state(self):    
-    self.is_action_split_active = False
-    self.is_action_selfint_active = False
-    self.is_action_simpl_active = False
+  def set_state(self, prop_name, value):
+    prop = self.props_switch[prop_name]
+    self.layer_state[prop["prop"]] = prop["auth"] and value
+    
+    
+  def reset_buttons_state(self):
+    for p in self.layer_state:
+      self.layer_state[p] = False    
 
     
   def on_featureAdded(self, fid):   
@@ -89,12 +100,12 @@ class LineLayer:
         feat_targ = get_feat_byid(self.layer, self.current_fid)[0] 
         
         #clean line and get cleaned geometry. 
-        cleaned_geoms = do_clean_geom(feat_targ, self.is_action_selfint_active, self.is_action_simplify_active)
+        cleaned_geoms = do_clean_geom(feat_targ, self.layer_state["is_action_selfint_active"], self.layer_state["is_action_simpl_active"]) #self.is_action_selfint_active, self.is_action_simplify_active)
         targ_geoms = cleaned_geoms
     
         #perform splitting on every geometry from cleaned geoms
         #split line at intersection with other feature of the same layer
-        if self.is_action_split_active:
+        if self.layer_state["is_action_split_active"]:
             splitted_geoms = do_split_layer_by_feature(self.layer, self.current_fid, cleaned_geoms)
             targ_geoms = splitted_geoms
         

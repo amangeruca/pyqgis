@@ -25,14 +25,14 @@ with open(os.path.join(PLUGIN_PATH, 'config.ini')) as f:
             APP_CONFIG["allow_simpl_button"] = eval(line.split('allow_simpl_button:')[1].strip())
             
 # line editor default
-        elif 'enable_split_button:' in line:
-            APP_CONFIG["enable_split_button"] = eval(line.split('enable_split_button:')[1].strip())
+        elif 'check_split_button:' in line:
+            APP_CONFIG["check_split_button"] = eval(line.split('check_split_button:')[1].strip())
             
-        elif 'enable_selfint_button:' in line:
-            APP_CONFIG["enable_selfint_button"] = eval(line.split('enable_selfint_button:')[1].strip())
+        elif 'check_selfint_button:' in line:
+            APP_CONFIG["check_selfint_button"] = eval(line.split('check_selfint_button:')[1].strip())
             
-        elif 'enable_simplify:' in line:
-            APP_CONFIG["enable_simplify"] = eval(line.split('enable_simplify:')[1].strip())
+        elif 'check_simpl_button:' in line:
+            APP_CONFIG["check_simpl_button"] = eval(line.split('check_simpl_button:')[1].strip())
             
 # function settings
         elif 'split_tolerance:' in line:
