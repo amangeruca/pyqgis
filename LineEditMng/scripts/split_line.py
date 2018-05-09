@@ -6,54 +6,67 @@ from geo_utils import (get_feat_bbox
                       ,get_singles_part_geometries
                       ,get_intersection_points
                       ,get_rounded_points
-                      ,create_feature_from_tmpl) 
+                      ,create_feature_from_tmpl
+                      ,add_close_vertex_to_linegeom
+                      ,geom_difference_to_line_list
+                      ,geom_intersection_to_line_list) 
 from utils import (MyLog)
 from settings import APP_CONFIG
 
 #split layer feature at intersection with the added feature. Then split the added feat
-def do_split_layer_by_feature(layer, id_targ, targ_geoms):
-    geom_targ_new = []
+def do_split_layer_by_feature(layer, id_targ, geoms_targ):
+    geoms_targ_new = []
     feats_int_new = []
     ids_feat_updated = []
+    geoms_int_snapped = []
     
     #create multigeometry from targs_geoms so all the geometry can be evaluate together
-    unionGeom = QgsGeometry.unaryUnion(targ_geoms)
+    uniong_targ = QgsGeometry.unaryUnion(geoms_targ)
     
     #get the feature that are close to target geom
-    feats_int = get_feats_close_to(layer, id_targ, unionGeom)
+    feats_int = get_feats_close_to(layer, id_targ, uniong_targ)
     
     if len(feats_int) > 0:
-        pts_int_finded = []
+      
         for f_int in feats_int:
+            geoms_int_splitted = []
             g_int = f_int.geometry()
-            #get point intersection 
-            geom_int_pts = get_intersection_points(unionGeom, g_int)
             
-            #if interesection
-            if geom_int_pts:
-                #round pt geometry to a grid
-                geom_int_pts_rnd = get_rounded_points(geom_int_pts, decimal=APP_CONFIG['rounding_digit'])
-                pts_int_finded.extend(geom_int_pts_rnd)
+            #if not intersection between g_int e u_geom skip
+            if not g_int.intersects(uniong_targ): continue                                
+          
+            #add vertices from target_geom close to the g_geom
+            for g_targ in geoms_targ:
+              add_vertices_to_geom(g_int, g_targ)
             
-                #split interesection layer and return new feature
-                feat_int_splitted = get_splitted_feats(f_int, geom_int_pts_rnd)
+            #save the update geometry to use for split the union of target geom
+            geoms_int_snapped.append(g_int)
+              
+            #split intersected geometry first with difference and intersection
+            geoms_int_diff = geom_difference_to_line_list(g_int, uniong_targ)
+            geoms_int_inters = geom_intersection_to_line_list(g_int, uniong_targ)
                 
-                #if there are feat to splited rec all feats to update existing
-                if len(feat_int_splitted) > 0:
-                    feats_int_new.extend(feat_int_splitted)
-                    ids_feat_updated.append(f_int.id())
+            for g in geoms_int_diff + geoms_int_inters:
+                geoms_int_splitted.append(QgsGeometry().fromPolyline(g))
                 
-        #split every target geom
-        if len(pts_int_finded) > 0:
-            for tgeom in targ_geoms:
-              tgeom_splitted = split_geom(tgeom, pts_int_finded)
-              if len(tgeom_splitted) > 0:
-                  has_target_splitted = True
-                  geom_targ_new.extend(tgeom_splitted)
-              else:
-                  geom_targ_new.append(tgeom)
-                  
-    return geom_targ_new, feats_int_new, ids_feat_updated  
+            if len(geoms_int_splitted) > 0:
+                #create new feature and save it in feats_int_new
+                for g in geoms_int_splitted:
+                    f = create_feature_from_tmpl(f_int, g)
+                    feats_int_new.append(f)
+                    
+                #save the original id of the feature
+                ids_feat_updated.append(f_int.id())
+                
+        #split union target geom otherwise noone intersect the target
+        if len(geoms_int_snapped) > 0:
+            uniong_int = QgsGeometry.unaryUnion(geoms_int_snapped)
+            geoms_targ_diff = geom_difference_to_line_list(uniong_targ, uniong_int)
+            
+            for g_targ in geoms_targ_diff:
+                geoms_targ_new.append(QgsGeometry().fromPolyline(g_targ))
+
+    return geoms_targ_new, feats_int_new, ids_feat_updated  
         
   
 #get all the feature the intersect the bounding box of the layer  
@@ -65,6 +78,20 @@ def get_feats_close_to(layer, id_targ, geom):
     
     MyLog.log_info("finded %s close to" % len(feats_ids_on_bbox))
     return feats_on_bbox
+  
+  
+def add_vertices_to_geom(geom, t_geom):
+    pts = t_geom.asPolyline()
+    for pt in pts:
+      add_close_vertex_to_linegeom(geom, pt, tolerance=APP_CONFIG['split_tolerance'])
+      
+
+''' 
+  Andrea Mangeruca 18-05-09
+  review of metodology for splitting geometry.
+  the method above were substitute form difference and intersect native function
+'''
+'''
   
   
 def get_splitted_feats(feat, geom_int_pts_rnd):
@@ -115,7 +142,36 @@ def split_geom(geom, split_pts):
     return geom_splitted
 
 
+#insert given point to the feature. If given point are a distance less than tolerance move point  
+def densify_feature_wiht_points(geom, pts, tolerance=0.2):
+    pts_position = []
+    for pt in pts:
+      #get the minimun distance form point to line
+      dist_line_sqr, pt_on_line, next_vrt = geom.closestSegmentWithContext(pt)
+      if dist_line_sqr < 0: break
+      if dist_line_sqr > tolerance**2: continue 
       
+      dist_to_vrt, vrt = geom.closestVertexWithContext(pt_on_line)
+      if dist_to_vrt > tolerance**2:
+        geom.insertVertex(pt.x(), pt.y(), next_vrt)
+        idxpt_toadd = next_vrt
+        
+      else:
+        geom.moveVertex(pt.x(), pt.y(), vrt)
+        idxpt_toadd = vrt
+      
+      #add to list of position if is before of already added pt move it forward
+      for i, pos in enumerate(pts_position):
+        if pos >= idxpt_toadd:
+          pts_position[i] = pos + 1
+      pts_position.append(idxpt_toadd)
+        
+    pts_position.sort()
+    return pts_position
+
+'''
+
+
 # split geometry not seems to work
 # find as it works
 # when i split a geometry also the target geometry will be modified 
@@ -137,30 +193,3 @@ def split_geom(geom, split_pts):
 #       MyLog.log_warn("Split line", "Error on splitting lines")
 #         
 #     return feat_splitted
-  
-  
-#insert given point to the feature. If given point are a distance less than tolerance move point  
-def densify_feature_wiht_points(geom, pts, tolerance=0.2):
-    pts_position = []
-    for pt in pts:
-      #get the minimun distance form point to line
-      dist_line_sqr, pt_on_line, next_vrt = geom.closestSegmentWithContext(pt)
-      if dist_line_sqr < 0: break
-      if dist_line_sqr > tolerance**2: continue 
-      
-      dist_to_vrt, vrt = geom.closestVertexWithContext(pt_on_line)
-      if dist_to_vrt > tolerance**2:
-        geom.insertVertex(pt.x(), pt.y(), next_vrt)
-        idxpt_toadd = next_vrt
-        
-      else:
-        geom.moveVertex(pt.x(), pt.y(), vrt)
-        idxpt_toadd = vrt
-      
-      for i, pos in enumerate(pts_position):
-        if pos >= idxpt_toadd:
-          pts_position[i] = pos + 1
-      pts_position.append(idxpt_toadd)
-        
-    pts_position.sort()
-    return pts_position

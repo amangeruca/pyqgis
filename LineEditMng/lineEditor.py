@@ -30,6 +30,11 @@ class LineEditor:
     self.currentLayer = self.iface.activeLayer()  
     self.linelayer_list = {}
     self.set_linelayer_list()
+    
+    #CHECK IF SOMES LAYER ARE ON EDIT AND STOP IT. It may cause conflict with signal
+    self.stop_currentEditingSession()
+    
+    self._attach_events()
   
   
   def initGui(self):
@@ -54,8 +59,6 @@ class LineEditor:
     # connect to signal renderComplete which is emitted when canvas
     # rendering is done
     #QObject.connect(self.iface.mapCanvas(), SIGNAL("renderComplete(QPainter *)"), self.renderTest)
-    
-    self._attach_events()
     
 
   #lanciata quando il plugin viene rimosso
@@ -239,6 +242,12 @@ class LineEditor:
     for l in lyrs:
       lc = LineLayer(self.iface, l)
       self.linelayer_list[l.id()] = lc
+      
+      
+  def stop_currentEditingSession(self):
+    for l_id in self.linelayer_list:
+      l = self.linelayer_list[l_id].layer
+      if l.isEditable(): l.commitChanges()
       
       
   def on_clickSettings(self):

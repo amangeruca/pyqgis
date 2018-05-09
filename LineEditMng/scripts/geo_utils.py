@@ -159,4 +159,39 @@ def create_feature_from_tmpl(feat, geom):
     f.setAttributes(f_attrs)
     f.setGeometry(geom)
     return f
+  
+#add or mouve a vertex on line at specific position (within a tolerance)
+def add_close_vertex_to_linegeom(geom, pt, tolerance=0.001):
+    #get the minimun distance form point to line
+    dist_line_sqr, pt_on_line, next_vrt = geom.closestSegmentWithContext(pt)
+    if not (0 <= dist_line_sqr <= tolerance**2) : return
+      
+    dist_to_vrt, vrt = geom.closestVertexWithContext(pt_on_line)
+    #if the distance from the point on line and closest vertex > tolerance add new vertex else move the existing
+    if dist_to_vrt > tolerance**2:
+        geom.insertVertex(pt.x(), pt.y(), next_vrt)    
+    else:
+        geom.moveVertex(pt.x(), pt.y(), vrt)    
+        
+        
+#return a list of linestring from geoprocessing results      
+def get_geomListFromCollection(collection):
+    geomList = collection.asMultiPolyline()
+    collection_asLine = collection.asPolyline()
+    if len(collection_asLine) > 0: geomList.append(collection_asLine)
+    return geomList    
+        
+        
+def geom_difference_to_line_list(geom_targ, geom_diff):
+    geom_result = geom_targ.difference(geom_diff)
+    geoms_list = get_geomListFromCollection(geom_result)
+    return geoms_list
+        
+        
+def geom_intersection_to_line_list(geom_targ, geom_diff):
+    geom_result = geom_targ.intersection(geom_diff)
+    geoms_list = get_geomListFromCollection(geom_result)
+    return geoms_list
+    
+  
     
