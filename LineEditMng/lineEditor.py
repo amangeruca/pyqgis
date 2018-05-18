@@ -5,6 +5,7 @@ from qgis.core import *
 # initialize Qt resources from file resources.py
 import resources
 
+from ui.settings_dialog import SettingsDialog
 from scripts.lineLayer import LineLayer
 from scripts.utils import (MyLog)
 from scripts.geo_utils import (get_lyrs_line_on_map
@@ -16,6 +17,8 @@ from scripts.settings import APP_CONFIG
 class LineEditor:
 
   def __init__(self, iface):
+    print "__init__"
+    
     # save reference to the QGIS interface
     self.iface = iface
     self.actions = []
@@ -27,18 +30,17 @@ class LineEditor:
     
     #PLUGIN INIT
     self.maplayerregistry = QgsMapLayerRegistry.instance()
+    self.stop_currentEditingSession() #CHECK IF SOMES LAYER ARE ON EDIT AND STOP IT. It may cause conflict with signal
     self.currentLayer = self.iface.activeLayer()  
-    self.linelayer_list = {}
-    self.set_linelayer_list()
+    self.linelayer_list = self.set_linelayer_list()
+    self.dialogSettings = SettingsDialog()
     
-    #CHECK IF SOMES LAYER ARE ON EDIT AND STOP IT. It may cause conflict with signal
-    self.stop_currentEditingSession()
-    
+    #attach event
     self._attach_events()
   
   
   def initGui(self):
-    print "init"
+    print "initGui"
     
     #add action button to menu
     icon_split = ":/plugins/lineeditor/icons/split.png"
@@ -64,17 +66,19 @@ class LineEditor:
   #lanciata quando il plugin viene rimosso
   def unload(self):
     print "unload"
-    
+
     #check if any layer is editable and switch off editing
-    editable_layers = get_lyrs_line_editable(self.maplayerregistry)
-    for l in editable_layers:
-      self.iface.setActiveLayer(l)
-      l.rollBack()
+    self.stop_currentEditingSession()
+    
+    #remove all the istance of LineLayer
+    self.linelayer_list.clear()
+    
     
     """Removes the plugin menu item and icon from QGIS GUI."""
     for action in self.actions:
         self.iface.removeToolBarIcon(action)
         
+
     #detach events on map
     self._detach_events()
     
@@ -159,20 +163,7 @@ class LineEditor:
       self.actions.append(action)
 
       return action
-    
-    
-  def attach_lines_lyrid_to_toolevent(self):
-    for id, lc in self.linelayer_list.iteritems():
-      #connect to layer startediting and stopediting
-      lc.layer.editingStarted.connect(self.on_editingStarted)
-      lc.layer.editingStopped.connect(self.on_editingStoped)
-    
-    
-  def detach_lines_lyrid_to_toolevent(self):
-    for id, lc in self.linelayer_list.iteritems():
-      #connect to layer startediting and stopediting
-      lc.layer.editingStarted.disconnect(self.on_editingStarted)
-      lc.layer.editingStopped.disconnect(self.on_editingStoped)
+
   
   '''
   active/deactivate enable/disable plugins buttons
@@ -207,10 +198,10 @@ class LineEditor:
     self.action_simpl.setChecked(False)
     
     
-  def set_buttons(self, l_cfg):
-    self.action_split.setChecked(l_cfg.layer_state["is_action_split_checked"])
-    self.action_selfint.setChecked(l_cfg.layer_state["is_action_selfint_checked"])
-    self.action_simpl.setChecked(l_cfg.layer_state["is_action_simpl_checked"])
+  def set_buttons(self, lstate):
+    self.action_split.setChecked(lstate["is_action_split_checked"])
+    self.action_selfint.setChecked(lstate["is_action_selfint_checked"])
+    self.action_simpl.setChecked(lstate["is_action_simpl_checked"])
     
     
   '''
@@ -225,7 +216,6 @@ class LineEditor:
       
   def _attach_events(self):    
     self.iface.currentLayerChanged.connect(self.on_currentLayerChanged)
-    self.attach_lines_lyrid_to_toolevent()
     self.maplayerregistry.layersAdded.connect(self.on_layersAdded)
     self.maplayerregistry.layersWillBeRemoved.connect(self.on_layerWillRemoved)
     
@@ -233,25 +223,34 @@ class LineEditor:
   def _detach_events(self):
     self.maplayerregistry.layersWillBeRemoved.disconnect(self.on_layerWillRemoved)
     self.maplayerregistry.layersAdded.disconnect(self.on_layersAdded)
-    self.detach_lines_lyrid_to_toolevent()
     self.iface.currentLayerChanged.disconnect(self.on_currentLayerChanged)
           
       
   def set_linelayer_list(self):
+    linelayer_list = {}
     lyrs = get_lyrs_line_on_map(self.maplayerregistry)
     for l in lyrs:
-      lc = LineLayer(self.iface, l)
-      self.linelayer_list[l.id()] = lc
+      lc = LineLayer(self, l)
+      linelayer_list[l.id()] = lc
+    return linelayer_list
       
       
   def stop_currentEditingSession(self):
-    for l_id in self.linelayer_list:
-      l = self.linelayer_list[l_id].layer
-      if l.isEditable(): l.commitChanges()
+    #check if any layer is editable and switch off editing
+    editable_layers = get_lyrs_line_editable(self.maplayerregistry)
+    for l in editable_layers:
+#       self.iface.setActiveLayer(l)
+#       l.rollBack()
+      l.commitChanges()
+#     
+#     for l_id in self.linelayer_list:
+#       l = self.linelayer_list[l_id].layer
+#       if l.isEditable(): l.commitChanges()
       
       
   def on_clickSettings(self):
     print "on_click_settings"
+    self.dialogSettings.show()
     
       
   def on_currentLayerChanged(self, layer):
@@ -268,9 +267,13 @@ class LineEditor:
       
       #if layer is editable set buttons else reset it
       if l_isEditable: 
-        self.set_buttons(self.linelayer_list[l_id])
+        self.set_buttons(self.linelayer_list[l_id].layer_state)
       else:
         self.uncheck_buttons()
+        
+    else:
+      self.enable_disable_buttons(False)
+      self.uncheck_buttons()
       
         
   def on_layersAdded(self, layers):
@@ -278,10 +281,8 @@ class LineEditor:
     for l in layers:
       print l  
       if is_lyr_a_line(l):
-        lc = LineLayer(self.iface, l)
+        lc = LineLayer(self, l)
         self.linelayer_list[l.id()] = lc
-        l.editingStarted.connect(self.on_editingStarted)
-        l.editingStopped.connect(self.on_editingStoped)
     
     
   def on_layerWillRemoved(self, layer_id):
@@ -290,31 +291,34 @@ class LineEditor:
       self.linelayer_list.pop(l_id, None)
       
       
-  def on_editingStarted(self):
-    MyLog.log_info("edit started")
-    l_id = self.currentLayer.id()
-    if not l_id in self.linelayer_list: return #if is not a line layer
-    l_cfg = self.linelayer_list[l_id]
+  def on_layerEditStarted(self, lstate):
+    print "on layerEditStarted"
+
+#     MyLog.log_info("on edit started")
+#     l_id = self.currentLayer.id()
+#     if not l_id in self.linelayer_list: return #if is not a line layer
+#     l_cfg = self.linelayer_list[l_id]
     
     #enable buttons on plugins
     self.enable_disable_buttons(True)
     #set the split button based on the last configured for the layer
-    self.set_buttons(l_cfg)
-    
+    self.set_buttons(lstate)
+#     
     #attach event for edit line
-    l_cfg.attach_editor_event() 
+#     l_cfg.on_layerStartEditing() 
     
       
-  def on_editingStoped(self):
-    MyLog.log_info("edit stoped")
+  def on_layerEditStoped(self):
+    print "on layerEditStoped"
+    
     #manage buttons
     self.uncheck_buttons()
     self.enable_disable_buttons(False)
     
-    l_id = self.currentLayer.id()
-    if not l_id in self.linelayer_list: return #if is not a line layer
-    l_cfg = self.linelayer_list[l_id]
-      
-    #attach event for edit line and set split setting
-    #l_cfg.reset_buttons_state()
-    l_cfg.detach_editor_event() 
+#     l_id = self.currentLayer.id()
+#     if not l_id in self.linelayer_list: return #if is not a line layer
+#     l_cfg = self.linelayer_list[l_id]
+#       
+#     #attach event for edit line and set split setting
+#     #l_cfg.reset_buttons_state()
+#     l_cfg.on_layerStopEditing() 

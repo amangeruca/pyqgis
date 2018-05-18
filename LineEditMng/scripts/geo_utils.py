@@ -12,15 +12,7 @@ def get_lyrs_line_on_map(maplayerregistry):
     lyrs_vect = get_lyrs_vect_on_map(maplayerregistry)
     lyrs_line = [lyr for lyr in lyrs_vect if is_lyr_a_line(lyr)]
     return lyrs_line
-  
-  
-#     lyr_list = []
-#     for id, lyr in maplayerregistry.mapLayers().iteritems():
-#         if lyr.type() == 0:
-#           if is_layer_a_linestring:
-#               lyr_list.append(lyr)
-#     
-#     return lyr_list
+
 
 #get all layer on map
 def get_lyrs_on_map(maplayerregistry):
@@ -80,14 +72,6 @@ def get_lyrs_line_editable(maplayerregistry):
     lyrs_line_editable = [lyr for lyr in lyrs_line if lyr.isEditable()]
     return lyrs_line_editable
     
-#     lines_editable_lyr = []
-#     for id in lyrid_list:
-#       layer = get_lyr_by_id(maplayerregistry, id)
-#       if layer.isEditable():
-#         lines_editable_lyr.append(layer)
-#     
-#     return lines_editable_lyr
-    
     
 #get feature intesecting a given bbox (is a feature bounding box)    
 def get_feats_on_bbox(layer, bbox):
@@ -124,41 +108,61 @@ def get_rounded_points(pts, decimal=3):
     return pts_rounded
   
   
-#get singles part geometries
+#get singles part geometries if geometry. If alwaysreturn if geometry is single geometry return the same geometry
 def get_singles_part_geometries(geom):
-    multiGeom = QgsGeometry()
-    sngl_geoms = []
-    if geom.type() == QGis.Point:
-        if geom.isMultipart():
+    if geom.isMultipart():
+        sngl_geoms = []        
+        if geom.type() == QGis.Point:
             multiGeom = geom.asMultiPoint()
             for i in multiGeom:
                 sngl_geoms.append(QgsGeometry().fromPoint(i))
-        else:
-            sngl_geoms.append(geom)
-    elif geom.type() == QGis.Line:
-        if geom.isMultipart():
+                
+        elif geom.type() == QGis.Line:
             multiGeom = geom.asMultiPolyline()
             for i in multiGeom:
                 sngl_geoms.append(QgsGeometry().fromPolyline(i))
-        else:
-            sngl_geoms.append(geom)
-    elif geom.type() == QGis.Polygon:
-        if geom.isMultipart():
+                
+        elif geom.type() == QGis.Polygon:
             multiGeom = geom.asMultiPolygon()
             for i in multiGeom:
                 sngl_geoms.append(QgsGeometry().fromPolygon(i))
-        else:
-            sngl_geoms.append(geom)
-    return sngl_geoms
+                    
+        return sngl_geoms
     
+    else:
+        return [geom]
+
+        
     
 #create feature from a given feat template and a list of geom
-def create_feature_from_tmpl(feat, geom):
+def create_feature_from_tmpl(layer, feat, geom):
+    #defines attributes
+    i_pks = layer.pkAttributeList()
     f_attrs = feat.attributes()
+    
+    #set to none all the pk field so they will setted automaticaly
+    if len(i_pks):
+      for i in i_pks:
+        f_attrs[i] = None
+    
+    #create feature
     f = QgsFeature()
     f.setAttributes(f_attrs)
     f.setGeometry(geom)
     return f
+  
+  
+#check if a point is on end or start point of a line
+def point_touch_line(pt, line, tolerance=None):
+    line_vrts = line.asPolyline()
+    if len(line_vrts)<2: return
+    
+    for vrt in line_vrts[::len(line_vrts)-1]:
+      vrt_geom = QgsGeometry.fromPoint(vrt)
+      if tolerance is not None:
+        pt = pt.buffer(tolerance, 10)
+      if pt.intersects(vrt_geom): return True
+  
   
 #add or mouve a vertex on line at specific position (within a tolerance)
 def add_close_vertex_to_linegeom(geom, pt, tolerance=0.001):

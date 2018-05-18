@@ -4,7 +4,7 @@ from settings import APP_CONFIG
 class MyLog():
     @staticmethod
     def logonqgis(msg, enable_print=False, level=QgsMessageLog.CRITICAL):
-        QgsMessageLog.logMessage(msg, APP_CONFIG['log_title'], level=level)
+        QgsMessageLog.logMessage(msg, APP_CONFIG['app_name'], level=level)
         if enable_print:
           MyLog.print_msg(msg)
     

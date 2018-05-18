@@ -3,15 +3,13 @@ from qgis.gui import QgsMessageBar
 from geo_utils import (get_feat_bbox
                       ,get_feats_on_bbox
                       ,get_feat_byid
-                      ,get_singles_part_geometries
-                      ,get_intersection_points
-                      ,get_rounded_points
+                      ,point_touch_line
                       ,create_feature_from_tmpl
                       ,add_close_vertex_to_linegeom
                       ,geom_difference_to_line_list
                       ,geom_intersection_to_line_list) 
-from utils import (MyLog)
-from settings import APP_CONFIG
+from utils import MyLog
+import settings
 
 #split layer feature at intersection with the added feature. Then split the added feat
 def do_split_layer_by_feature(layer, id_targ, geoms_targ):
@@ -19,25 +17,34 @@ def do_split_layer_by_feature(layer, id_targ, geoms_targ):
     feats_int_new = []
     ids_feat_updated = []
     geoms_int_snapped = []
+    any_split_performed = False
     
     #create multigeometry from targs_geoms so all the geometry can be evaluate together
     uniong_targ = QgsGeometry.unaryUnion(geoms_targ)
     
     #get the feature that are close to target geom
     feats_int = get_feats_close_to(layer, id_targ, uniong_targ)
-    
+       
     if len(feats_int) > 0:
-      
         for f_int in feats_int:
+            MyLog.log_info("Found feature close to: %s" % f_int.id())
             geoms_int_splitted = []
-            g_int = f_int.geometry()
+            split_tolerance = settings.get_parameter('split_tolerance')
             
+            g_int = f_int.geometry()
+
             #if not intersection between g_int e u_geom skip
-            if not g_int.intersects(uniong_targ): continue                                
-          
+#             if not g_int.intersects(uniong_targ): continue    #without buffer seem have problem when a vertex just touch a line                            
+            if not is_geom_intersect_interior(g_int, uniong_targ, geoms_targ, split_tolerance): continue
+            
+            MyLog.log_info("Found feature intersect: %s" %f_int.id())
+            
+            #set that the feature target has been used to split other feature
+            any_split_performed = True
+            
             #add vertices from target_geom close to the g_geom
             for g_targ in geoms_targ:
-              add_vertices_to_geom(g_int, g_targ)
+              add_vertices_to_geom(g_int, g_targ, split_tolerance)
             
             #save the update geometry to use for split the union of target geom
             geoms_int_snapped.append(g_int)
@@ -52,7 +59,7 @@ def do_split_layer_by_feature(layer, id_targ, geoms_targ):
             if len(geoms_int_splitted) > 0:
                 #create new feature and save it in feats_int_new
                 for g in geoms_int_splitted:
-                    f = create_feature_from_tmpl(f_int, g)
+                    f = create_feature_from_tmpl(layer, f_int, g)
                     feats_int_new.append(f)
                     
                 #save the original id of the feature
@@ -65,6 +72,9 @@ def do_split_layer_by_feature(layer, id_targ, geoms_targ):
             
             for g_targ in geoms_targ_diff:
                 geoms_targ_new.append(QgsGeometry().fromPolyline(g_targ))
+                
+    if not any_split_performed:
+        geoms_targ_new = None
 
     return geoms_targ_new, feats_int_new, ids_feat_updated  
         
@@ -75,15 +85,35 @@ def get_feats_close_to(layer, id_targ, geom):
     feats_ids_on_bbox = get_feats_on_bbox(layer, bbox)
     feats_ids_on_bbox.remove(id_targ)
     feats_on_bbox = get_feat_byid(layer, feats_ids_on_bbox)
-    
-    MyLog.log_info("finded %s close to" % len(feats_ids_on_bbox))
+
     return feats_on_bbox
   
   
-def add_vertices_to_geom(geom, t_geom):
+def add_vertices_to_geom(geom, t_geom, tolerance):
     pts = t_geom.asPolyline()
     for pt in pts:
-      add_close_vertex_to_linegeom(geom, pt, tolerance=APP_CONFIG['split_tolerance'])
+      add_close_vertex_to_linegeom(geom, pt, tolerance=tolerance)
+      
+      
+#check if geom int intersects union target not in just the end point
+#if there are any intersection point that aren't not at the end vertices of both the geometry or intersection is not a point return true      
+def is_geom_intersect_interior(g_int, uniong_targ, geoms_targ, tolerance):
+    #if g_int doesen't interescts union of geoms target it meens doesn't have to be splitted
+    if not (g_int.buffer(tolerance, 10).intersects(uniong_targ)): return 
+    
+    for g_targ in geoms_targ:
+      int_geom = g_int.intersection(g_targ)
+      #if intersection is not a point
+      if int_geom.asPoint()[0]==0: return True
+      
+      #chek if the intersection point is at end g_int vertices
+      if not point_touch_line(int_geom, g_int, tolerance=tolerance): return True
+    
+      #check if the intersection point is at end g_targ vertices
+      if not point_touch_line(int_geom, g_targ, tolerance=tolerance): return True
+    
+    #if is not returned before it meens that g_int end vertices touch and end vertices of one of geoms_targ
+    return
       
 
 ''' 

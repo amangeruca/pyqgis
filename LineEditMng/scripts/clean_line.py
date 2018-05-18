@@ -1,40 +1,65 @@
 from qgis.core import QgsGeometry
 from geo_utils import (get_geom_by_id,
                        get_singles_part_geometries)
-from settings import APP_CONFIG
-                       
-def do_clean_geom(feat, check_self_int, check_simplify):
-    #get target geom
-    targ_geom = feat.geometry()
-    cleaned_geoms = [targ_geom]
-    
-    #do resolve self intersection and return geometry
-    if check_self_int:
-        validateResults = targ_geom.validateGeometry()
-        if len(validateResults):
-            cleaned_geoms = do_resolve_self_int(targ_geom)
-    
+from utils import MyLog
+import settings
+
+
+def do_clean_multipart(geoms):
     #get singlePartGeom
     singl_geoms = []
-    for cgeom in cleaned_geoms:
+    
+    for cgeom in geoms:
         sgeom = get_singles_part_geometries(cgeom)
         singl_geoms.extend(sgeom)
     
-    cleaned_geoms = singl_geoms
-    
+    return singl_geoms
+  
+  
+def do_clean_simplify(geoms):
     #do perform simplify
-    if check_simplify:
-        simpl_geoms = []
-        for cgeom in cleaned_geoms:
-            simpgeom = do_simplify_geom(cgeom)
-            simpl_geoms.append(simpgeom)
-        
-        cleaned_geoms = simpl_geoms 
-    
-    return cleaned_geoms
+    simpl_geoms = []
+    for cgeom in geoms:
+        simpgeom = do_simplify_geom(cgeom)
+        simpl_geoms.append(simpgeom)
+            
+    return simpl_geoms
+  
+                       
+# def do_clean_geom(feat, check_self_int, check_simplify):
+#     #get target geom
+#     targ_geom = feat.geometry()
+#     cleaned_geoms = [targ_geom]
+#     
+#     #do resolve self intersection and return geometry
+#     if check_self_int:
+#         MyLog.log_info("Do reslove self-intersect geometry")
+#         validateResults = targ_geom.validateGeometry()
+#         if len(validateResults):
+#             cleaned_geoms = do_resolve_self_int(targ_geom)
+#     
+#     #get singlePartGeom
+#     singl_geoms = []
+#     for cgeom in cleaned_geoms:
+#         sgeom = get_singles_part_geometries(cgeom)
+#         singl_geoms.extend(sgeom)
+#     
+#     cleaned_geoms = singl_geoms
+#     
+#     #do perform simplify
+#     if check_simplify:
+#         MyLog.log_info("Do simplify geometry")
+#         simpl_geoms = []
+#         for cgeom in cleaned_geoms:
+#             simpgeom = do_simplify_geom(cgeom)
+#             simpl_geoms.append(simpgeom)
+#         
+#         cleaned_geoms = simpl_geoms 
+#     
+#     return cleaned_geoms
 
 
-def do_resolve_self_int(geom):
+def do_makeGeometryValid(geom):
     resolved_geoms = []
     
     #intersect geom with its self gives segments every vertices splitted at intersection with other segments ordered from starting point
@@ -77,7 +102,7 @@ def do_resolve_self_int(geom):
 def isSegAtIntersection(seg, ref_geoms):
 #     endPt = seg.asPolyline[-1]
     endPt = seg[-1]
-    endPtBuff = QgsGeometry.fromPoint(endPt).buffer(APP_CONFIG["split_tolerance"], 10)
+    endPtBuff = QgsGeometry.fromPoint(endPt).buffer(settings.get_parameter('split_tolerance'), 10)
     
     #loop throught refs and test if are more than 1
     tot_ints = 0
@@ -91,7 +116,7 @@ def isSegAtIntersection(seg, ref_geoms):
 
 
 def do_simplify_geom(geom):
-    simpl_geom = geom.simplify(APP_CONFIG["simpl_tolerance"])
+    simpl_geom = geom.simplify(settings.get_parameter('simpl_tolerance'))
     return simpl_geom
             
     
